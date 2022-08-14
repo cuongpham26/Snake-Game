@@ -1,37 +1,58 @@
+#include <cassert>
 #include <chrono> // for std::chrono
 #include <conio.h> // for _kbhit() and _getch()
 #include <iostream>
 #include <thread> // for std::this_thread
 #include <windows.h> // for SetConsoleCursorPosition
 
+class Point
+{
+private:
+	int m_x;
+	int m_y;
+
+public:
+	Point(int x = 0, int y = 0) : m_x{ x }, m_y{ y }
+	{
+		assert(x >= 0 && y >= 0);
+	}
+	int& getX() { return m_x; }
+	int& getY() { return m_y; }
+	int getX() const { return m_x; }
+	int getY() const { return m_y; }
+
+	friend bool operator==(const Point& p1, const Point& p2)
+	{
+		return (p1.m_x == p2.m_x) && (p1.m_y == p2.m_y);
+	}
+};
+
 bool gameOver;
-constexpr int width{ 20 };
-constexpr int height{ 20 };
-int headX, headY, fruitX, fruitY, score;
-int tailX[(width - 2) * (height - 2) - 1], tailY[(width - 2) * (height - 2) - 1];
-int tailNum;
-enum Direction { stop = 0, up, right, down, left };
-Direction direction;
+constexpr int width{ 20 }, height{ 20 };
+Point head, fruit, tail[(width - 2) * (height - 2) - 1];
+int tailNum, score;
+enum class Direction { stop = 0, up, right, down, left } direction;
 
 void setup()
 {
 	gameOver = false;
-	direction = stop;
-	headX = width / 2;
-	headY = height / 2;
+	direction = Direction::stop;
+	head = Point(width / 2, height / 2);
 
-	bool wrongFruitPosition{ false }; // If the fruit is in the same position as head or one of the tails
+	bool wrongFruitPosition{ false }; // If the fruit is in the same position as the head or one of the tails
 	do {
-		fruitX = (rand() % (width - 2)) + 1; // to ensure that fruitX is within the range [1, width-2]
-		fruitY = (rand() % (height - 2)) + 1; // to ensure that fruitY is within the range [1, height-2]
+		// To ensure that fruit.m_x and fruit.m_y is within the range [1, width-2]
+		fruit = Point(rand() % (width - 2) + 1, rand() % (width - 2) + 1);
 
-		if (fruitX == headX && fruitY == headY) {
+		// If the fruit is in the same position as the head
+		if (fruit == head) {
 			wrongFruitPosition = true;
 			continue;
 		}
 
+		// If the fruit is in the same position as one of the tails
 		for (int i = 0; i < tailNum; ++i) {
-			if (fruitX == tailX[i] && fruitY == tailY[i]) {
+			if (fruit == tail[i]) {
 				wrongFruitPosition = true;
 			}
 		}
@@ -44,10 +65,10 @@ void draw()
 {
 	/* system("cls"); // clear the console window (but there is flickering) */
 
-	// A better solution that doesn't have flickering
+	// A better solution
 	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), { 0, 0 });
 	// What this does is jsut takes your cursor to first word of top line and starts to
-	// overwirte the text so the flickering just stops
+	// overwirte the text so the flickering decreases
 
 	// Print the top wall
 	for (int i = 0; i < width; ++i) {
@@ -61,16 +82,16 @@ void draw()
 			if (j == 0 || j == width - 1) {
 				std::cout << '#';
 			}
-			else if (j == headX && i == headY) {
+			else if (j == head.getX() && i == head.getY()) {
 				std::cout << 'O';
 			}
-			else if (j == fruitX && i == fruitY) {
+			else if (j == fruit.getX() && i == fruit.getY()) {
 				std::cout << '@';
 			}
 			else {
 				bool tail_is_printed{ false };
 				for (int k = 0; k < tailNum; ++k) {
-					if (j == tailX[k] && i == tailY[k]) {
+					if (j == tail[k].getX() && i == tail[k].getY()) {
 						std::cout << 'o';
 						tail_is_printed = true;
 						break;
@@ -88,7 +109,7 @@ void draw()
 	for (int i = 0; i < width; ++i) {
 		std::cout << '#';
 	}
-	std::cout << "\nScore: " << score;
+	std::cout << "\n\nScore: " << score;
 }
 
 void input()
@@ -100,27 +121,27 @@ void input()
 		switch (_getch())
 		{
 		case 'w':
-			if (direction != down || tailNum == 0) {
-				direction = up;
+			if (direction != Direction::down || tailNum == 0) {
+				direction = Direction::up;
 			}
 			break;
 		case 'd':
-			if (direction != left || tailNum == 0) {
-				direction = right;
+			if (direction != Direction::left || tailNum == 0) {
+				direction = Direction::right;
 			}
 			break;
 		case 's':
-			if (direction != up || tailNum == 0) {
-				direction = down;
+			if (direction != Direction::up || tailNum == 0) {
+				direction = Direction::down;
 			}
 			break;
 		case 'a':
-			if (direction != right || tailNum == 0) {
-				direction = left;
+			if (direction != Direction::right || tailNum == 0) {
+				direction = Direction::left;
 			}
 			break;
 		case ' ': // for testing purpose only
-			direction = stop;
+			direction = Direction::stop;
 			break;
 		case 'x':
 			gameOver = true;
@@ -131,66 +152,67 @@ void input()
 
 void logic()
 {
-	int currX, currY, prevX{ headX }, prevY{ headY };
+	// Update the position of the tails depend on the position of the head
+	// This portion must be executed before the updating the position of the head because
+	// otherwise, we will lose the old position (before updating) of the head so we can't
+	// update the position of tail[0]
+	Point curr, prev{ head };
 	for (int i = 0; i < tailNum; ++i)
 	{
 		// Save the current tail position
-		currX = tailX[i];
-		currY = tailY[i];
+		curr = tail[i];
 
 		// Update the current tail position
-		tailX[i] = prevX;
-		tailY[i] = prevY;
+		tail[i] = prev;
 
 		// Update the previous tail position as the current tail position (for the next iteration)
-		prevX = currX;
-		prevY = currY;
+		prev = curr;
 	}
 
 	// Update the position of the snake's head based on its direction
 	switch (direction)
 	{
-	case up:
-		--headY; // since the y-axis is reversed for this program
+	case Direction::up:
+		--head.getY(); // since the y-axis is reversed for this program
 		break;
-	case right:
-		++headX;
+	case Direction::right:
+		++head.getX();
 		break;
-	case down:
-		++headY; // since the y-axis is reversed for this program
+	case Direction::down:
+		++head.getY(); // since the y-axis is reversed for this program
 		break;
-	case left:
-		--headX;
+	case Direction::left:
+		--head.getX();
 		break;
 	}
 
-	// If the snake's head pass hit the wall
-	if (headX >= width - 1 || headX <= 0 || headY <= 0 || headY >= height - 1) {
+	// If the snake's head hit the wall
+	if (head.getX() >= width - 1 || head.getX() <= 0 || head.getY() <= 0 || head.getY() >= height - 1) {
 		gameOver = true;
 	}
 
 	// If the snake eats the fruit
-	if (headX == fruitX && headY == fruitY) {
+	if (head == fruit) {
 		++tailNum;
 		score += 10;
 
 		bool wrongFruitPosition{ false }; // If the fruit is in the same position as head or one of the tails
 		do {
-			fruitX = (rand() % (width - 2)) + 1; // to ensure that fruitX is within the range [1, width-2]
-			fruitY = (rand() % (height - 2)) + 1; // to ensure that fruitY is within the range [1, height-2]
+			// To ensure that fruit.m_x and fruit.m_y is within the range [1, width-2]
+			fruit = Point(rand() % (width - 2) + 1, rand() % (width - 2) + 1);
 
-			if (fruitX == headX && fruitY == headY) {
+			if (fruit == head) {
 				wrongFruitPosition = true;
 				continue;
 			}
 
 			for (int i = 0; i < tailNum; ++i) {
-				if (fruitX == tailX[i] && fruitY == tailY[i]) {
+				if (fruit == tail[i]) {
 					wrongFruitPosition = true;
 					continue;
 				}
 			}
-			wrongFruitPosition = false; // If this line is not hear, wrongFruitPosition
+			wrongFruitPosition = false; // If this line is not here, wrongFruitPosition
 			// once becomes true, it will remain true forever. Therefore, this while loop
 			// becomes an infinite while loop
 		} while (wrongFruitPosition);
@@ -198,12 +220,11 @@ void logic()
 
 	// If the snake eats itself, stops the game
 	for (int i = 0; i < tailNum; ++i) {
-		if (headX == tailX[i] && headY == tailY[i]) {
+		if (head == tail[i]) {
 			gameOver = true;
 			break;
 		}
 	}
-
 }
 
 void sleep(int miliseconds)
